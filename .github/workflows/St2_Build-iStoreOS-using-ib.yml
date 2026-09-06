@@ -293,6 +293,40 @@ jobs:
           fi
           echo "file=$ROOTFS_FILE" >> $GITHUB_OUTPUT
 
+      - name: 🩹 全局替换 cp 为兼容版本
+        run: |
+          sudo mv /bin/cp /bin/cp.real
+          sudo bash -c 'cat > /bin/cp << "EOF"
+          #!/bin/bash
+          # 过滤掉 --update 及其后续参数（如果存在）
+          args=()
+          skip_next=false
+          for arg in "$@"; do
+            if [ "$skip_next" = true ]; then
+              skip_next=false
+              continue
+            fi
+            # 处理 --update 单独出现
+            if [ "$arg" = "--update" ]; then
+              # 检查下一个参数是否可能是其选项（如 -t 或一个值）
+              # 但不一定，我们采用保守策略：仅当下一个参数以 '-' 开头且不是常见选项时跳过
+              # 但为了简化，我们直接忽略 --update，并将下一个参数当作普通参数保留（如果它存在）
+              # 但更好的做法：直接跳过 --update，不跳过后续参数，让 cp 使用默认行为（覆盖）
+              continue
+            fi
+            # 处理 --update=value 形式
+            if [[ "$arg" == --update=* ]]; then
+              continue
+            fi
+            args+=("$arg")
+          done
+          # 调用真正的 cp
+          exec /bin/cp.real "${args[@]}"
+          EOF'
+          sudo chmod +x /bin/cp
+          echo "✅ /bin/cp 已被替换为兼容版本"
+
+
       - name: 🧱 打包iStoreOS固件
         uses: ophub/amlogic-s9xxx-openwrt@main
         with:
