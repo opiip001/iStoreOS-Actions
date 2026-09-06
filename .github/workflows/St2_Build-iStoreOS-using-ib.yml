@@ -293,6 +293,29 @@ jobs:
           fi
           echo "file=$ROOTFS_FILE" >> $GITHUB_OUTPUT
 
+      - name: 🩹 临时修复 BusyBox cp 问题
+        run: |
+          sudo bash -c 'cat > /usr/local/bin/cp << "EOF"
+          #!/bin/bash
+          args=()
+          skip_next=false
+          for arg in "$@"; do
+          if [ "$skip_next" = true ]; then
+          skip_next=false
+          continue
+          fi
+          if [[ "$arg" == "--update" ]]; then
+          # 如果 --update 后跟参数，则跳过该参数
+          skip_next=true
+          continue
+          fi
+          args+=("$arg")
+          done
+          exec /bin/cp "${args[@]}"
+          EOF'
+          sudo chmod +x /usr/local/bin/cp
+          echo "✅ 已创建临时 cp 修复脚本"
+
       - name: 🧱 打包iStoreOS固件
         uses: ophub/amlogic-s9xxx-openwrt@main
         with:
