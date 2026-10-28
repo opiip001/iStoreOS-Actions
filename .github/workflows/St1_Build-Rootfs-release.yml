@@ -5,13 +5,14 @@ on:
       build_version:
         description: "1、请选择构建版本"
         required: true
-        default: '20260731'
+        default: '20261023'
         type: choice
         options:
+          - '20261023'
+          - '20260924'
+          - '20260911'
           - '20260731'
           - '20260703'
-          - '20260605'
-          - '20260417'
       network_settings:
         description: "2、请选择初始网络配置"
         required: true
@@ -30,14 +31,16 @@ on:
         default: '192.168.5.1'
 
 env:
-  VERSION: 24.10.8
+  VERSION: 25.12.6
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v6
 
     - name: ⚙️ 设置可执行权限
       run: | 
@@ -79,8 +82,9 @@ jobs:
       run: |
         cp arm64/build24.sh imagebuilder/
         #cp arm64/{Makefile,repositories.conf} imagebuilder/
+        cp arm64/repositories imagebuilder/
         cp shell/*-packages.sh imagebuilder/
-        find files/packages/ -name "*.ipk" -exec cp {} imagebuilder/packages/ \;
+        find files/packages/ -name "*.apk" -exec cp {} imagebuilder/packages/ \;
         
         mkdir -p imagebuilder/files/etc/{uci-defaults,banner1}
         # 添加开机启动脚本
@@ -105,8 +109,8 @@ jobs:
       run: |
         echo "打印imagebuilder目录结构"
         tree -L 1
-        echo "打印repositories"
-        cat repositories.conf
+        #echo "打印repositories"
+        #cat repositories.conf
         #echo "打印Makefile"
         #cat Makefile |grep here
         bash ./build24.sh
@@ -117,7 +121,7 @@ jobs:
         ls -lah imagebuilder/bin/targets/armsr/armv8/
 
     - name: 🚀 上传到 Release
-      uses: softprops/action-gh-release@v2.2.1
+      uses: softprops/action-gh-release@v3
       with:
         tag_name: iStoreOS-${{ env.VERSION }}-RELEASE-${{ inputs.network_settings }}
         body: |
