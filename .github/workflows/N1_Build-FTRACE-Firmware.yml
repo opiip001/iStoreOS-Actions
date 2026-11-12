@@ -1,0 +1,87 @@
+name: N1 - Package FTRACE firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      network_settings:
+        description: "Must match the N1 rootfs workflow run"
+        required: true
+        default: "dhcp"
+        type: choice
+        options:
+          - dhcp
+          - static
+
+env:
+  VERSION: "25.12.6"
+
+permissions:
+  contents: write
+
+jobs:
+  build-firmware:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Download N1 FTRACE rootfs
+        run: |
+          set -euo pipefail
+          mkdir -p bin/targets/armsr/armv8
+          tag="iStoreOS-${VERSION}-N1-FTRACE-${{ inputs.network_settings }}"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/istoreos-armsr-armv8-generic-rootfs.tar.gz"
+          curl -fL --retry 3 "$url" -o bin/targets/armsr/armv8/istoreos-armsr-armv8-generic-rootfs.tar.gz
+          test -s bin/targets/armsr/armv8/istoreos-armsr-armv8-generic-rootfs.tar.gz
+
+      - name: Prepare ImageBuilder cp compatibility
+        run: |
+          set -euo pipefail
+          sudo mv /bin/cp /bin/cp.real
+          sudo bash -c 'cat > /bin/cp << "EOF"
+          #!/bin/bash
+          args=()
+          for arg in "$@"; do
+            [[ "$arg" == "--update" || "$arg" == --update=* ]] && continue
+            args+=("$arg")
+          done
+          exec /bin/cp.real "${args[@]}"
+          EOF'
+          sudo chmod +x /bin/cp
+
+      - name: Package N1 firmware with the custom kernel
+        uses: ophub/amlogic-s9xxx-openwrt@main
+        with:
+          openwrt_path: bin/targets/armsr/armv8/istoreos-armsr-armv8-generic-rootfs.tar.gz
+          openwrt_board: s905d
+          openwrt_kernel: 6.12.y
+          auto_kernel: true
+          kernel_repo: ${{ github.repository }}
+          kernel_usage: n1ftrace
+          builder_name: kwonelee
+
+      - name: Verify firmware image
+        run: |
+          set -euo pipefail
+          test -n "${PACKAGED_OUTPUTPATH:-}"
+          shopt -s nullglob
+          images=( "${PACKAGED_OUTPUTPATH}"/*.img.gz )
+          test "${#images[@]}" -gt 0 || { echo "No N1 .img.gz firmware produced"; exit 1; }
+          sha256sum "${images[@]}" | tee "${PACKAGED_OUTPUTPATH}/sha256sums"
+
+      - name: Publish N1 FTRACE firmware
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: iStoreOS-${{ env.VERSION }}-N1-FTRACE-FIRMWARE-${{ inputs.network_settings }}
+          name: iStoreOS ${{ env.VERSION }} Phicomm N1 FTRACE firmware (${{ inputs.network_settings }})
+          body: |
+            Phicomm N1 / Amlogic S905D firmware.
+            Rootfs: iStoreOS 25.12.6 ImageBuilder with existing packages, Honk and Nikki.
+            Kernel: custom ophub 6.12.y published under this repository's kernel_n1ftrace release tag.
+            The kernel workflow verifies FUNCTION_TRACER, DYNAMIC_FTRACE, BTF and the required Honk/Nikki kernel modules.
+            This is a flashable image; verify the exact N1 model and keep a recovery backup before installing.
+          files: |
+            ${{ env.PACKAGED_OUTPUTPATH }}/*.img.gz
+            ${{ env.PACKAGED_OUTPUTPATH }}/sha256sums
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
