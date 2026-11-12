@@ -75,7 +75,8 @@ jobs:
         run: |
           set -euo pipefail
           cp arm64/build-n1-ftrace.sh imagebuilder/build24.sh
-          cp arm64/repositories imagebuilder/repositories
+          # Keep ImageBuilder's generated APK-format repositories file.
+          # arm64/repositories is legacy opkg syntax (src/option) and breaks APK.
           cp shell/*-packages.sh imagebuilder/
           find files/packages/ -type f -name '*.apk' -exec cp -f {} imagebuilder/packages/ \;
           mkdir -p imagebuilder/files/etc/uci-defaults imagebuilder/files/etc/banner1
