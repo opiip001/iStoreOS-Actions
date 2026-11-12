@@ -1088,7 +1088,7 @@ PACKAGES="$PACKAGES luci-app-ramfree luci-i18n-ramfree-zh-cn"
 # N1 FTRACE firmware: retain installed Honk/Nikki apps and install their 25.12 APK builds.
 PACKAGES="$PACKAGES honk@daeuniverse luci-app-honk@daeuniverse luci-lib-daeuniverse@daeuniverse luci-i18n-daeuniverse-zh-cn@daeuniverse vmlinux-btf-builtin@daeuniverse"
 PACKAGES="$PACKAGES nikki@nikki luci-app-nikki@nikki luci-i18n-nikki-zh-cn@nikki"
-PACKAGES="$PACKAGES v2ray-geoip v2ray-geosite"
+PACKAGES="$PACKAGES v2ray-geoip v2ray-geosite yq"
 # These kmod packages are resolved against the matching 25.12 ImageBuilder package index.
 PACKAGES="$PACKAGES kmod-sched-core kmod-sched-bpf kmod-veth kmod-nft-core kmod-nft-queue kmod-nfnetlink-queue kmod-nf-conntrack"
 PACKAGES="$PACKAGES kmod-inet-diag kmod-nft-socket kmod-nft-tproxy kmod-tun kmod-dummy"
