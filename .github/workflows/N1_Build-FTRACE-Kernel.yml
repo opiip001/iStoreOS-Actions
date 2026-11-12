@@ -44,6 +44,11 @@ jobs:
               "DYNAMIC_FTRACE",
               "DEBUG_INFO_BTF",
               "DEBUG_INFO_BTF_MODULES",
+              "NETFILTER_NETLINK_QUEUE",
+              "NFT_QUEUE",
+              "NET_CLS_BPF",
+              "NET_ACT_BPF",
+              "VETH",
           ):
               set_option(option, "y")
 
