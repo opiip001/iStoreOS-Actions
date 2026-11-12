@@ -142,7 +142,7 @@ jobs:
         uses: ophub/upload-to-releases@main
         if: ${{ env.PACKAGED_STATUS == 'success' }}
         with:
-          tag: kernel_stable
+          tag: kernel_n1ftrace
           artifacts: ${{ env.PACKAGED_OUTPUTPATH }}/*
           allow_updates: true
           remove_artifacts: false
