@@ -58,6 +58,7 @@ jobs:
           auto_kernel: true
           kernel_repo: ${{ github.repository }}
           kernel_usage: n1ftrace
+          openwrt_files: arm64/n1-ftrace-files
           builder_name: kwonelee
 
       - name: Verify firmware image
