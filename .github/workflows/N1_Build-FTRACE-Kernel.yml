@@ -154,11 +154,15 @@ jobs:
           for option in CONFIG_FTRACE=y CONFIG_FUNCTION_TRACER=y CONFIG_DYNAMIC_FTRACE=y CONFIG_DEBUG_INFO_BTF=y CONFIG_DEBUG_INFO_BTF_MODULES=y; do
             grep -Fxq "$option" "$config" || { echo "Final kernel lost $option"; exit 1; }
           done
+          # Read the complete archive index before searching it. Avoid piping tar
+          # into grep -q: grep may exit early and SIGPIPE tar under pipefail.
+          tar -tzf "$modules_archive" > "$tmp/modules.list"
           for module in nfnetlink_queue nft_queue cls_bpf act_bpf sch_ingress nft_socket nft_tproxy tun dummy veth; do
-            tar -tzf "$modules_archive" | grep -Eq "/${module}\.ko([.][a-z0-9]+)?$" || {
+            if ! grep -Eq "(^|/)${module}\.ko([.][[:alnum:]_-]+)?$" "$tmp/modules.list"; then
               echo "Required Honk/N1 module missing: $module"
+              grep -E "/${module}([.]ko|/)" "$tmp/modules.list" || true
               exit 1
-            }
+            fi
           done
           echo "Verified kernel archive: $archive"
           grep -E '^(CONFIG_FTRACE|CONFIG_FUNCTION_TRACER|CONFIG_DYNAMIC_FTRACE|CONFIG_DEBUG_INFO_BTF|CONFIG_DEBUG_INFO_BTF_MODULES)=' "$config"
