@@ -44,13 +44,28 @@ jobs:
               "DYNAMIC_FTRACE",
               "DEBUG_INFO_BTF",
               "DEBUG_INFO_BTF_MODULES",
+          ):
+              set_option(option, "y")
+
+          def ensure_module(name: str) -> None:
+              key = f"CONFIG_{name}"
+              matches = [i for i, line in enumerate(lines)
+                         if line.startswith(key + "=") or line == f"# {key} is not set"]
+              if matches:
+                  lines[matches[0]] = f"{key}=m"
+                  for i in reversed(matches[1:]):
+                      del lines[i]
+              else:
+                  lines.append(f"{key}=m")
+
+          for module_option in (
               "NETFILTER_NETLINK_QUEUE",
               "NFT_QUEUE",
               "NET_CLS_BPF",
               "NET_ACT_BPF",
               "VETH",
           ):
-              set_option(option, "y")
+              ensure_module(module_option)
 
           path.write_text("\n".join(lines) + "\n")
           required = (
