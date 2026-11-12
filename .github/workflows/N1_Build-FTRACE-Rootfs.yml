@@ -1,0 +1,115 @@
+name: N1 - Build FTRACE Rootfs with existing plugins
+
+on:
+  workflow_dispatch:
+    inputs:
+      network_settings:
+        description: "Initial LAN configuration"
+        required: true
+        default: "dhcp"
+        type: choice
+        options:
+          - dhcp
+          - static
+      ipaddr:
+        description: "Static LAN IP (used only when static is selected)"
+        required: true
+        default: "192.168.5.88"
+      gateway:
+        description: "Static gateway (used only when static is selected)"
+        required: true
+        default: "192.168.5.1"
+
+env:
+  VERSION: "25.12.6"
+  IMAGEBUILDER_DATE: "20261106"
+
+permissions:
+  contents: write
+
+jobs:
+  build-rootfs:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Prepare scripts and initial network configuration
+        env:
+          NETWORK_SETTINGS: ${{ inputs.network_settings }}
+          IPADDR: ${{ inputs.ipaddr }}
+          GATEWAY: ${{ inputs.gateway }}
+        run: |
+          set -euo pipefail
+          chmod +x arm64/build-n1-ftrace.sh
+          chmod +x shell/*.sh
+          sed -i "s/版本号/${VERSION}/g" files/etc/uci-defaults/99-custom.sh
+          sed -i "s/版本号/${VERSION}/g" files/etc/banner
+          config="files/etc/uci-defaults/99-custom.sh"
+          if [ "${NETWORK_SETTINGS}" = "static" ]; then
+            sed -i '34,111d' "$config"
+            sed -i "s/192.168.5.88/${IPADDR}/g" "$config"
+            sed -i "s/192.168.5.1/${GATEWAY}/g" "$config"
+          else
+            sed -i '26,32d' "$config"
+          fi
+          echo "Network settings: ${NETWORK_SETTINGS}"
+          sed -n '20,42p' "$config"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses5-dev zstd curl unzip tree
+
+      - name: Download iStoreOS 25.12.6 ImageBuilder
+        run: |
+          set -euo pipefail
+          url="https://github.com/Kwonelee/iStoreOS-Actions/releases/download/iStoreOS-ImageBuilder/${IMAGEBUILDER_DATE}-istoreos-imagebuilder-armsr-armv8.Linux-x86_64.tar.zst"
+          curl -fL --retry 3 "$url" -o imagebuilder.tar.zst
+          tar --use-compress-program=unzstd -xf imagebuilder.tar.zst
+          dir=$(find . -maxdepth 1 -type d -name 'istoreos-imagebuilder-*' | head -n 1)
+          test -n "$dir"
+          mv "$dir" imagebuilder
+
+      - name: Add N1 package feeds, keys and existing plugins
+        run: |
+          set -euo pipefail
+          cp arm64/build-n1-ftrace.sh imagebuilder/build24.sh
+          cp arm64/repositories imagebuilder/repositories
+          cp shell/*-packages.sh imagebuilder/
+          find files/packages/ -type f -name '*.apk' -exec cp -f {} imagebuilder/packages/ \;
+          mkdir -p imagebuilder/files/etc/uci-defaults imagebuilder/files/etc/banner1
+          cp files/etc/uci-defaults/99-custom.sh imagebuilder/files/etc/uci-defaults/
+          cp files/etc/banner imagebuilder/files/etc/banner1/
+          cp files/etc/rc.local imagebuilder/files/etc/
+
+          cd imagebuilder
+          sed -i 's/# CONFIG_TARGET_ROOTFS_TARGZ is not set/CONFIG_TARGET_ROOTFS_TARGZ=y/' .config
+          sed -i 's|CONFIG_TARGET_ROOTFS_SQUASHFS=.*|# CONFIG_TARGET_ROOTFS_SQUASHFS is not set|g' .config
+          sed -i 's|CONFIG_TARGET_IMAGES_GZIP=.*|# CONFIG_TARGET_IMAGES_GZIP is not set|g' .config
+          echo "ImageBuilder config:"
+          grep -E 'CONFIG_TARGET_ROOTFS_TARGZ|CONFIG_TARGET_ROOTFS_SQUASHFS|CONFIG_TARGET_IMAGES_GZIP' .config || true
+
+      - name: Build N1 rootfs with current plugins + Honk + Nikki
+        working-directory: imagebuilder
+        run: |
+          set -euo pipefail
+          bash ./build24.sh
+          mkdir -p ../rootfs-output
+          rootfs=$(find bin/targets/armsr/armv8 -maxdepth 1 -type f -name '*generic-rootfs.tar.gz' | head -n 1)
+          test -n "$rootfs"
+          cp "$rootfs" ../rootfs-output/istoreos-armsr-armv8-generic-rootfs.tar.gz
+          ls -lh ../rootfs-output/
+
+      - name: Publish N1 FTRACE rootfs
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: iStoreOS-${{ env.VERSION }}-N1-FTRACE-${{ inputs.network_settings }}
+          name: iStoreOS ${{ env.VERSION }} N1 FTRACE rootfs (${{ inputs.network_settings }})
+          body: |
+            N1-only iStoreOS 25.12.6 generic rootfs built with ImageBuilder.
+            Includes the existing package list plus signed Honk and Nikki 25.12 feeds.
+            This is a rootfs archive, not a flashable image. The next workflow packages it with the custom N1 kernel.
+          files: rootfs-output/istoreos-armsr-armv8-generic-rootfs.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
