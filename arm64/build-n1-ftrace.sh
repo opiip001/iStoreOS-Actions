@@ -8,7 +8,17 @@ curl -fsSL --retry 3 https://nikkinikki.pages.dev/public-key.pem -o keys/nikki.p
 install -m 0644 keys/daeuniverse.pem files/etc/apk/keys/daeuniverse.pem
 install -m 0644 keys/nikki.pem files/etc/apk/keys/nikki.pem
 
+# Official OpenWrt 25.12.5 package feeds supply dependencies used by the
+# Honk/Nikki feeds (v2ray-geoip, v2ray-geosite, yq, coreutils-timeout, flock).
+# Do not add the kmods feed here: N1 firmware uses the separately built 6.12.117
+# kernel/modules archive, not the ImageBuilder kernel ABI.
 cat >> repositories <<'EOF'
+https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_generic/base/packages.adb
+https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_generic/luci/packages.adb
+https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_generic/packages/packages.adb
+https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_generic/routing/packages.adb
+https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_generic/telephony/packages.adb
+https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_generic/video/packages.adb
 @daeuniverse https://openwrt.daeuniverse.org/25.12/packages/aarch64_generic/packages.adb
 @nikki https://nikkinikki.pages.dev/openwrt-25.12/aarch64_generic/nikki/packages.adb
 EOF
