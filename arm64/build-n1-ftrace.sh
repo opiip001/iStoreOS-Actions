@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+set -eo pipefail
 
 # N1-only signed APK feeds for Honk and Nikki (iStoreOS / OpenWrt 25.12).
 mkdir -p keys files/etc/apk/keys files/etc/apk/repositories.d
