@@ -1,0 +1,151 @@
+name: N1 - Build FTRACE kernel
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-26.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Prepare N1 6.12 kernel config
+        run: |
+          set -euo pipefail
+          mkdir -p kernel-config-build
+          curl -fsSL --retry 3 \
+            https://raw.githubusercontent.com/ophub/kernel/main/kernel-config/release/stable/config-6.12 \
+            -o kernel-config-build/config-6.12
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("kernel-config-build/config-6.12")
+          lines = path.read_text().splitlines()
+
+          def set_option(name: str, value: str) -> None:
+              global lines
+              key = f"CONFIG_{name}"
+              matches = [i for i, line in enumerate(lines)
+                         if line.startswith(key + "=") or line == f"# {key} is not set"]
+              replacement = f"{key}={value}"
+              if matches:
+                  lines[matches[0]] = replacement
+                  for i in reversed(matches[1:]):
+                      del lines[i]
+              else:
+                  lines.append(replacement)
+
+          for option in (
+              "FTRACE",
+              "FUNCTION_TRACER",
+              "DYNAMIC_FTRACE",
+              "DEBUG_INFO_BTF",
+              "DEBUG_INFO_BTF_MODULES",
+          ):
+              set_option(option, "y")
+
+          path.write_text("\n".join(lines) + "\n")
+          required = (
+              "CONFIG_FTRACE=y",
+              "CONFIG_FUNCTION_TRACER=y",
+              "CONFIG_DYNAMIC_FTRACE=y",
+              "CONFIG_DEBUG_INFO_BTF=y",
+              "CONFIG_DEBUG_INFO_BTF_MODULES=y",
+              "CONFIG_ARM64=y",
+              "CONFIG_BPF_SYSCALL=y",
+              "CONFIG_NETFILTER_NETLINK_QUEUE=m",
+              "CONFIG_NFT_QUEUE=m",
+              "CONFIG_NET_CLS_BPF=m",
+              "CONFIG_NET_ACT_BPF=m",
+              "CONFIG_VETH=m",
+          )
+          content = path.read_text().splitlines()
+          missing = [item for item in required if item not in content]
+          if missing:
+              raise SystemExit("Kernel config is missing required N1 options: " + ", ".join(missing))
+          print("\n".join(item for item in content if item.startswith((
+              "CONFIG_FTRACE=", "CONFIG_FUNCTION_TRACER=", "CONFIG_DYNAMIC_FTRACE=",
+              "CONFIG_DEBUG_INFO_BTF=", "CONFIG_DEBUG_INFO_BTF_MODULES=",
+          ))))
+          PY
+
+      - name: Create extended build disk
+        run: |
+          set -euo pipefail
+          root_avail=$(df --block-size=1G / | tail -1 | awk '{print $4}')
+          root_size=$(( root_avail - 4 ))
+          if [ "$root_size" -le 0 ]; then
+            echo "Not enough free space for the kernel build"
+            exit 1
+          fi
+          sudo truncate -s "${root_size}G" /root.img
+          build_dev=$(sudo losetup --find --show /root.img)
+          sudo mkfs.xfs -f -i sparse=0 -b size=4096 "$build_dev"
+          sudo mkdir -p /builder
+          sudo mount "$build_dev" /builder
+          sudo chown -R runner:runner /builder
+          df -Th
+
+      - name: Compile N1 kernel with FTRACE
+        uses: ophub/amlogic-s9xxx-armbian@main
+        with:
+          build_target: kernel
+          kernel_source: ophub
+          kernel_version: 6.12.y
+          kernel_auto: true
+          delete_source: true
+          kernel_package: all
+          kernel_sign: -ophub
+          kernel_toolchain: gcc-15.3
+          kernel_config: kernel-config-build
+          docker_hostpath: /builder
+          docker_image: ophub/armbian-resolute:arm64
+          enable_log: true
+
+      - name: Verify kernel config and N1 modules
+        run: |
+          set -euo pipefail
+          out="${PACKAGED_OUTPUTPATH:?PACKAGED_OUTPUTPATH was not set by the kernel builder}"
+          archive=$(find "$out" -maxdepth 1 -type f -name '6.12.*.tar.gz' ! -name 'deb-*' | sort -V | tail -n 1)
+          test -n "$archive" || { echo "Kernel archive 6.12.x.tar.gz not found"; exit 1; }
+          tmp=$(mktemp -d)
+          tar -xzf "$archive" -C "$tmp"
+          boot_archive=$(find "$tmp" -type f -name 'boot-*-ophub.tar.gz' | head -n 1)
+          modules_archive=$(find "$tmp" -type f -name 'modules-*-ophub.tar.gz' | head -n 1)
+          dtb_archive=$(find "$tmp" -type f -name 'dtb-amlogic-*-ophub.tar.gz' | head -n 1)
+          test -n "$boot_archive" && test -n "$modules_archive" && test -n "$dtb_archive"
+          mkdir "$tmp/boot"
+          tar -xzf "$boot_archive" -C "$tmp/boot"
+          config=$(find "$tmp/boot" -maxdepth 1 -type f -name 'config-*' | head -n 1)
+          test -n "$config"
+          for option in CONFIG_FTRACE=y CONFIG_FUNCTION_TRACER=y CONFIG_DYNAMIC_FTRACE=y CONFIG_DEBUG_INFO_BTF=y CONFIG_DEBUG_INFO_BTF_MODULES=y; do
+            grep -Fxq "$option" "$config" || { echo "Final kernel lost $option"; exit 1; }
+          done
+          for module in nfnetlink_queue nft_queue cls_bpf act_bpf veth; do
+            tar -tzf "$modules_archive" | grep -Eq "/${module}\.ko([.][a-z0-9]+)?$" || {
+              echo "Required Honk/N1 module missing: $module"
+              exit 1
+            }
+          done
+          echo "Verified kernel archive: $archive"
+          grep -E '^(CONFIG_FTRACE|CONFIG_FUNCTION_TRACER|CONFIG_DYNAMIC_FTRACE|CONFIG_DEBUG_INFO_BTF|CONFIG_DEBUG_INFO_BTF_MODULES)=' "$config"
+
+      - name: Publish N1 FTRACE kernel to kernel_stable
+        uses: ophub/upload-to-releases@main
+        if: ${{ env.PACKAGED_STATUS == 'success' }}
+        with:
+          tag: kernel_stable
+          artifacts: ${{ env.PACKAGED_OUTPUTPATH }}/*
+          allow_updates: true
+          remove_artifacts: false
+          replaces_artifacts: true
+          make_latest: false
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            Phicomm N1 / S905D custom kernel.
+            Linux 6.12.y from ophub/linux-6.12.y.
+            Enabled FUNCTION_TRACER + DYNAMIC_FTRACE and retained built-in BTF.
+            The workflow verifies the final .config and Honk NFQUEUE / TC-BPF modules before publishing.
